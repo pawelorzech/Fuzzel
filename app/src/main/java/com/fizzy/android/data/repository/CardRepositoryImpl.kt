@@ -8,6 +8,8 @@ import com.fizzy.android.domain.model.Card
 import com.fizzy.android.domain.model.Comment
 import com.fizzy.android.domain.model.Step
 import com.fizzy.android.domain.repository.CardRepository
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -19,18 +21,59 @@ class CardRepositoryImpl @Inject constructor(
     private val apiService: FizzyApiService
 ) : CardRepository {
 
-    override suspend fun getBoardCards(boardId: String): ApiResult<List<Card>> {
-        val result = ApiResult.from {
-            apiService.getCards(boardId)
+    override suspend fun getBoardCards(boardId: String): ApiResult<List<Card>> = coroutineScope {
+        Log.d(TAG, "getBoardCards: Fetching all card states for board $boardId")
+
+        // Fetch all 3 types of cards in parallel
+        val activeDeferred = async { apiService.getCards(boardId, "all") }
+        val closedDeferred = async { apiService.getCards(boardId, "closed") }
+        val notNowDeferred = async { apiService.getCards(boardId, "not_now") }
+
+        val activeResponse = activeDeferred.await()
+        val closedResponse = closedDeferred.await()
+        val notNowResponse = notNowDeferred.await()
+
+        Log.d(TAG, "getBoardCards responses - active: ${activeResponse.isSuccessful}, closed: ${closedResponse.isSuccessful}, notNow: ${notNowResponse.isSuccessful}")
+
+        // Combine all cards
+        val allCards = mutableListOf<Card>()
+
+        if (activeResponse.isSuccessful) {
+            activeResponse.body()?.let { cards ->
+                Log.d(TAG, "getBoardCards: ${cards.size} active cards")
+                allCards.addAll(cards.map { it.toDomain() })
+            }
+        } else {
+            Log.e(TAG, "getBoardCards active error: ${activeResponse.code()} - ${activeResponse.message()}")
         }
-        Log.d(TAG, "getBoardCards result: $result")
-        when (result) {
-            is ApiResult.Success -> Log.d(TAG, "getBoardCards success: ${result.data.size} cards")
-            is ApiResult.Error -> Log.e(TAG, "getBoardCards error: ${result.code} - ${result.message}")
-            is ApiResult.Exception -> Log.e(TAG, "getBoardCards exception", result.throwable)
+
+        if (closedResponse.isSuccessful) {
+            closedResponse.body()?.let { cards ->
+                Log.d(TAG, "getBoardCards: ${cards.size} closed cards")
+                allCards.addAll(cards.map { it.toDomain() })
+            }
+        } else {
+            Log.e(TAG, "getBoardCards closed error: ${closedResponse.code()} - ${closedResponse.message()}")
         }
-        return result.map { response ->
-            response.map { it.toDomain() }.sortedBy { it.position }
+
+        if (notNowResponse.isSuccessful) {
+            notNowResponse.body()?.let { cards ->
+                Log.d(TAG, "getBoardCards: ${cards.size} not_now cards")
+                allCards.addAll(cards.map { it.toDomain() })
+            }
+        } else {
+            Log.e(TAG, "getBoardCards not_now error: ${notNowResponse.code()} - ${notNowResponse.message()}")
+        }
+
+        // Deduplicate by ID and sort
+        val uniqueCards = allCards.distinctBy { it.id }.sortedBy { it.position }
+        Log.d(TAG, "getBoardCards: Total ${uniqueCards.size} unique cards")
+
+        // Return success if at least active cards were fetched
+        if (activeResponse.isSuccessful) {
+            ApiResult.Success(uniqueCards)
+        } else {
+            ApiResult.Error(activeResponse.code(), activeResponse.message())
         }
     }
 

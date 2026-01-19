@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.fizzy.android.core.network.ApiResult
 import com.fizzy.android.domain.model.Board
 import com.fizzy.android.domain.model.Card
+import com.fizzy.android.domain.model.CardStatus
 import com.fizzy.android.domain.model.Column
 import com.fizzy.android.domain.repository.BoardRepository
 import com.fizzy.android.domain.repository.CardRepository
@@ -147,16 +148,61 @@ class KanbanViewModel @Inject constructor(
     private fun distributeCardsToColumns(columns: List<Column>, cards: List<Card>): List<Column> {
         Log.d(TAG, "distributeCardsToColumns: ${cards.size} cards, ${columns.size} columns")
         Log.d(TAG, "Column IDs: ${columns.map { "${it.name}=${it.id}" }}")
-        Log.d(TAG, "Card columnIds: ${cards.map { "${it.title}→${it.columnId}" }}")
+        Log.d(TAG, "Card statuses: ${cards.map { "${it.title}→${it.status}" }}")
 
-        val cardsByColumn = cards.groupBy { it.columnId }
-        Log.d(TAG, "Cards grouped by column: ${cardsByColumn.mapValues { it.value.map { c -> c.title } }}")
+        // Group cards by status
+        val deferredCards = cards.filter { it.status == CardStatus.DEFERRED }.sortedBy { it.position }
+        val closedCards = cards.filter { it.status == CardStatus.CLOSED }.sortedBy { it.position }
+        val activeCards = cards.filter { it.status == CardStatus.ACTIVE || it.status == CardStatus.TRIAGED }
 
-        return columns.map { column ->
+        // Group active cards by column
+        val triageCards = activeCards.filter { it.columnId.isEmpty() }.sortedBy { it.position }
+        val cardsByColumn = activeCards.filter { it.columnId.isNotEmpty() }.groupBy { it.columnId }
+
+        Log.d(TAG, "Cards by status - deferred: ${deferredCards.size}, triage: ${triageCards.size}, in columns: ${cardsByColumn.values.sumOf { it.size }}, closed: ${closedCards.size}")
+
+        val result = mutableListOf<Column>()
+        val defaultBoardId = columns.firstOrNull()?.boardId ?: boardId
+
+        // NOT NOW swimlane (deferred cards) - always visible, position -2
+        result += Column(
+            id = "__not_now__",
+            name = "Not Now",
+            position = -2,
+            boardId = defaultBoardId,
+            cards = deferredCards
+        )
+        Log.d(TAG, "Added NOT NOW swimlane with ${deferredCards.size} cards")
+
+        // Triage swimlane (active cards without column) - always visible, position -1
+        result += Column(
+            id = "",
+            name = "Triage",
+            position = -1,
+            boardId = defaultBoardId,
+            cards = triageCards
+        )
+        Log.d(TAG, "Added Triage swimlane with ${triageCards.size} cards")
+
+        // User-created columns with active cards
+        val columnsWithCards = columns.map { column ->
             val columnCards = cardsByColumn[column.id]?.sortedBy { it.position } ?: emptyList()
             Log.d(TAG, "Column '${column.name}' (${column.id}): ${columnCards.size} cards")
             column.copy(cards = columnCards)
         }
+        result += columnsWithCards
+
+        // DONE swimlane (closed cards) - always visible, position at end
+        result += Column(
+            id = "__done__",
+            name = "Done",
+            position = Int.MAX_VALUE,
+            boardId = defaultBoardId,
+            cards = closedCards
+        )
+        Log.d(TAG, "Added DONE swimlane with ${closedCards.size} cards")
+
+        return result
     }
 
     fun refresh() {

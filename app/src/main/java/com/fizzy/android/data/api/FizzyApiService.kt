@@ -76,7 +76,10 @@ interface FizzyApiService {
     // ==================== Cards ====================
 
     @GET("cards.json")
-    suspend fun getCards(@Query("board_ids[]") boardId: String? = null): Response<CardsResponse>
+    suspend fun getCards(
+        @Query("board_ids[]") boardId: String? = null,
+        @Query("indexed_by") indexedBy: String? = null
+    ): Response<CardsResponse>
 
     @GET("cards/{cardNumber}.json")
     suspend fun getCard(@Path("cardNumber") cardNumber: Int): Response<CardResponse>

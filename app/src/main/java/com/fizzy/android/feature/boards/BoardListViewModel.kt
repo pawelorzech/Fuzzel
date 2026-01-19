@@ -5,8 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.fizzy.android.core.network.ApiResult
 import com.fizzy.android.domain.model.Board
 import com.fizzy.android.domain.repository.BoardRepository
+import com.fizzy.android.domain.repository.CardRepository
 import com.fizzy.android.domain.repository.NotificationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -34,6 +38,7 @@ sealed class BoardListEvent {
 @HiltViewModel
 class BoardListViewModel @Inject constructor(
     private val boardRepository: BoardRepository,
+    private val cardRepository: CardRepository,
     private val notificationRepository: NotificationRepository
 ) : ViewModel() {
 
@@ -54,10 +59,12 @@ class BoardListViewModel @Inject constructor(
     private fun observeBoards() {
         viewModelScope.launch {
             boardRepository.observeBoards().collect { boards ->
+                // Fetch stats for boards from the flow
+                val boardsWithStats = fetchBoardStats(boards)
                 _uiState.update { state ->
                     state.copy(
-                        boards = boards,
-                        filteredBoards = filterBoards(boards, state.searchQuery)
+                        boards = boardsWithStats,
+                        filteredBoards = filterBoards(boardsWithStats, state.searchQuery)
                     )
                 }
             }
@@ -70,7 +77,16 @@ class BoardListViewModel @Inject constructor(
 
             when (val result = boardRepository.getBoards()) {
                 is ApiResult.Success -> {
-                    _uiState.update { it.copy(isLoading = false) }
+                    val boards = result.data
+                    // Fetch stats for each board in parallel
+                    val boardsWithStats = fetchBoardStats(boards)
+                    _uiState.update { state ->
+                        state.copy(
+                            isLoading = false,
+                            boards = boardsWithStats,
+                            filteredBoards = filterBoards(boardsWithStats, state.searchQuery)
+                        )
+                    }
                 }
                 is ApiResult.Error -> {
                     _uiState.update {
@@ -92,12 +108,37 @@ class BoardListViewModel @Inject constructor(
         }
     }
 
+    private suspend fun fetchBoardStats(boards: List<Board>): List<Board> = coroutineScope {
+        boards.map { board ->
+            async {
+                val columnsResult = boardRepository.getColumns(board.id)
+                val cardsResult = cardRepository.getBoardCards(board.id)
+                board.copy(
+                    columnsCount = (columnsResult as? ApiResult.Success)?.data?.size ?: 0,
+                    cardsCount = (cardsResult as? ApiResult.Success)?.data?.size ?: 0
+                )
+            }
+        }.awaitAll()
+    }
+
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isRefreshing = true) }
 
             boardRepository.refreshBoards()
             notificationRepository.getNotifications()
+
+            // Re-fetch stats for updated boards
+            val currentBoards = _uiState.value.boards
+            if (currentBoards.isNotEmpty()) {
+                val boardsWithStats = fetchBoardStats(currentBoards)
+                _uiState.update { state ->
+                    state.copy(
+                        boards = boardsWithStats,
+                        filteredBoards = filterBoards(boardsWithStats, state.searchQuery)
+                    )
+                }
+            }
 
             _uiState.update { it.copy(isRefreshing = false) }
         }

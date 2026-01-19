@@ -212,6 +212,28 @@ private fun KanbanColumn(
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
+    // Determine column type and styling
+    val isTriageColumn = column.id.isEmpty()
+    val isNotNowColumn = column.id == "__not_now__"
+    val isDoneColumn = column.id == "__done__"
+    val isVirtualColumn = isTriageColumn || isNotNowColumn || isDoneColumn
+
+    // Colors for different column types
+    val columnColor = when {
+        isNotNowColumn -> Color(0xFF8B5CF6) // Purple for Not Now
+        isTriageColumn -> Color(0xFFF97316) // Orange for Triage
+        isDoneColumn -> Color(0xFF22C55E) // Green for Done
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+
+    // Icons for virtual columns
+    val columnIcon = when {
+        isNotNowColumn -> Icons.Default.Schedule
+        isTriageColumn -> Icons.Default.Inbox
+        isDoneColumn -> Icons.Default.CheckCircle
+        else -> null
+    }
+
     Card(
         modifier = Modifier
             .width(300.dp)
@@ -233,15 +255,28 @@ private fun KanbanColumn(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    columnIcon?.let { icon ->
+                        Icon(
+                            icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = columnColor
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
                     Text(
                         text = column.name,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isVirtualColumn) columnColor else MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Surface(
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                        color = if (isVirtualColumn)
+                            columnColor.copy(alpha = 0.2f)
+                        else
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
                     ) {
                         Text(
                             text = column.cards.size.toString(),
@@ -251,41 +286,44 @@ private fun KanbanColumn(
                     }
                 }
 
-                Box {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(
-                            Icons.Default.MoreVert,
-                            contentDescription = "Column options",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                // Hide menu for all virtual columns
+                if (!isVirtualColumn) {
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "Column options",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
 
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Edit") },
-                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                onEditColumn()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            },
-                            onClick = {
-                                showMenu = false
-                                onDeleteColumn()
-                            }
-                        )
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Edit") },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onEditColumn()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onDeleteColumn()
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -307,16 +345,18 @@ private fun KanbanColumn(
                 }
             }
 
-            // Add Card Button
-            TextButton(
-                onClick = onAddCard,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Add Card")
+            // Add Card Button (hide for all virtual columns)
+            if (!isVirtualColumn) {
+                TextButton(
+                    onClick = onAddCard,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add Card")
+                }
             }
         }
     }
