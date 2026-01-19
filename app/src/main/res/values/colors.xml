@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="splash_background">#FFFFFF</color>
+    <color name="fizzy_primary">#2563EB</color>
+    <color name="fizzy_primary_dark">#1D4ED8</color>
+    <color name="fizzy_secondary">#10B981</color>
+</resources>
